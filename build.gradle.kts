@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "tsb99x"
-version = "0.1.0-SNAPSHOT"
+version = "0.1.0"
 
 repositories {
     mavenCentral()

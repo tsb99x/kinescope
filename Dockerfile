@@ -1,6 +1,10 @@
 FROM eclipse-temurin:17-jre-alpine
 
-ENV VERTICLE_FILE kinescope-0.1.0-SNAPSHOT-fat.jar
+LABEL org.opencontainers.image.source=https://github.com/tsb99x/kinescope
+LABEL org.opencontainers.image.description="Kinescope"
+LABEL org.opencontainers.image.licenses=MIT
+
+ENV VERTICLE_FILE kinescope-0.1.0-fat.jar
 ENV VERTICLE_HOME /usr/verticles
 
 EXPOSE 8080
