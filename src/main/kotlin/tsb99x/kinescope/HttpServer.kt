@@ -24,34 +24,38 @@ class HttpServer : CoroutineVerticle() {
         val router = Router.router(vertx)
 
         router.route().handler(LoggerHandler.create())
-        router.route().failureHandler(this::handleFailure)
-        router.get("/").coHandler(this::handleRoot)
-        router.get("/:streamName").coHandler(this::handleStream)
-        router.get("/:streamName/:shardId").coHandler(this::handleShard)
+        router.route().failureHandler(this::failure)
+        router.get("/").coHandler(this::root)
+        router.get("/:streamName").coHandler(this::listShards)
+        router.get("/:streamName/:shardId").coHandler(this::readShard)
 
         server.requestHandler(router)
         val res = server.listen(port, host).await()
-        log.info("started HTTP Server Vertice on http://{}:{}", host, res.actualPort())
+        log.info("started HTTP Server Verticle on http://{}:{}", host, res.actualPort())
     }
 
-    private fun handleFailure(ctx: RoutingContext) {
+    override suspend fun stop() {
+        log.info("stopped HTTP Server Verticle")
+    }
+
+    private fun failure(ctx: RoutingContext) {
         ctx.response()
             .setStatusCode(INTERNAL_SERVER_ERROR.code())
             .putHeader(CONTENT_TYPE, TEXT_PLAIN)
             .end(ctx.failure().message)
     }
 
-    private suspend fun handleRoot(ctx: RoutingContext) {
-        val r = request<ListStreamsRes>(LIST_STREAMS_ADDR, null).await()
+    private suspend fun root(ctx: RoutingContext) {
+        val res = request(PB_LIST_STREAMS, ListStreams(null))
 
-        if (r.body().streamNames.isEmpty()) {
+        if (res.body().streamNames.isEmpty()) {
             ctx.response()
                 .putHeader(CONTENT_TYPE, TEXT_PLAIN)
                 .end("no stream exists yet")
             return
         }
 
-        val streamNameLinks = r.body().streamNames
+        val streamNameLinks = res.body().streamNames
             .joinToString("<br/>") { "<a href='$it'>$it</a>" }
 
         ctx.response()
@@ -59,12 +63,12 @@ class HttpServer : CoroutineVerticle() {
             .end(streamNameLinks)
     }
 
-    private suspend fun handleStream(ctx: RoutingContext) {
+    private suspend fun listShards(ctx: RoutingContext) {
         val streamName = ctx.pathParam("streamName")
 
-        val r = request<ListShardsRes>(LIST_SHARDS_ADDR, ListShards(streamName)).await()
+        val res = request(PB_LIST_SHARDS, ListShards(streamName))
 
-        val streamNameLinks = r.body().shardIds
+        val streamNameLinks = res.body().shardIds
             .joinToString("<br/>") { "<a href='${ctx.request().absoluteURI()}/$it'>$it</a>" }
 
         ctx.response()
@@ -72,29 +76,25 @@ class HttpServer : CoroutineVerticle() {
             .end(streamNameLinks)
     }
 
-    private suspend fun handleShard(ctx: RoutingContext) {
+    private suspend fun readShard(ctx: RoutingContext) {
         val streamName = ctx.pathParam("streamName")
         val shardId = ctx.pathParam("shardId")
 
-        val r = request<ReadShardRes>(READ_SHARD_ADDR, ReadShard(streamName, shardId)).await()
+        val res = request(PB_READ_SHARD, ReadShard(streamName, shardId))
 
-        if (r.body().records.isEmpty()) {
+        if (res.body().records.isEmpty()) {
             ctx.response()
                 .putHeader(CONTENT_TYPE, TEXT_PLAIN)
                 .end("no records exists yet")
             return
         }
 
-        val records = r.body().records
+        val records = res.body().records
             .joinToString("<br/><br/>")
 
         ctx.response()
             .putHeader(CONTENT_TYPE, TEXT_HTML)
             .end(records)
-    }
-
-    override suspend fun stop() {
-        log.info("stopped HTTP Server Vertice")
     }
 
 }

@@ -1,24 +1,17 @@
-import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
-import org.gradle.api.tasks.testing.logging.TestLogEvent.FAILED
-import org.gradle.api.tasks.testing.logging.TestLogEvent.PASSED
-import org.gradle.api.tasks.testing.logging.TestLogEvent.SKIPPED
+import org.gradle.api.tasks.testing.logging.TestLogEvent.*
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import java.io.ByteArrayOutputStream
 
 plugins {
-    kotlin ("jvm") version "1.6.10"
     application
-    id("com.github.johnrengelman.shadow") version "7.0.0"
+    kotlin("jvm") version "1.6.20"
 }
 
 group = "tsb99x"
-version = "0.1.0"
-
-repositories {
-    mavenCentral()
-}
+version = gitVersion()
 
 val vertxVersion = "4.3.7"
-val awsSdkVersion = "2.15.0"
+val awsSdkVersion = "2.19.5"
 val kotlinxCoroutinesVersion = "1.5.2"
 val logbackVersion = "1.4.5"
 
@@ -28,17 +21,18 @@ val launcherClassName = "io.vertx.core.Launcher"
 val watchForChange = "src/**/*"
 val doOnChange = "${projectDir}/gradlew classes"
 
-application {
-    mainClass.set(launcherClassName)
+val imageTag = "ghcr.io/tsb99x/kinescope:${project.version}"
+
+repositories {
+    mavenCentral()
 }
 
 dependencies {
     implementation(platform("io.vertx:vertx-stack-depchain:$vertxVersion"))
     implementation(platform("software.amazon.awssdk:bom:$awsSdkVersion"))
+    implementation(platform("org.jetbrains.kotlinx:kotlinx-coroutines-bom:$kotlinxCoroutinesVersion"))
 
-    implementation(kotlin("stdlib-jdk8"))
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:$kotlinxCoroutinesVersion")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8")
 
     implementation("io.vertx:vertx-web")
     implementation("io.vertx:vertx-lang-kotlin")
@@ -48,15 +42,20 @@ dependencies {
     runtimeOnly("ch.qos.logback:logback-classic:$logbackVersion")
 }
 
-val compileKotlin: KotlinCompile by tasks
-compileKotlin.kotlinOptions.jvmTarget = "17"
+application {
+    mainClass.set(launcherClassName)
+}
 
-tasks.withType<ShadowJar> {
-    archiveClassifier.set("fat")
-    manifest {
-        attributes(mapOf("Main-Verticle" to mainVerticleName))
+tasks.withType<KotlinCompile> {
+    kotlinOptions {
+        jvmTarget = "17"
     }
-    mergeServiceFiles()
+}
+
+tasks.withType<Jar> {
+    manifest {
+        attributes(mapOf("Implementation-Version" to project.version))
+    }
 }
 
 tasks.withType<Test> {
@@ -74,4 +73,27 @@ tasks.withType<JavaExec> {
         "--launcher-class=$launcherClassName",
         "--on-redeploy=$doOnChange"
     )
+}
+
+tasks.register<Exec>("dockerBuild") {
+    group = "docker"
+    dependsOn("build")
+    commandLine("docker", "build", "--build-arg", "VERSION=${project.version}", "-t", imageTag, ".")
+}
+
+tasks.register<Exec>("dockerPush") {
+    group = "docker"
+    commandLine("docker", "push", imageTag)
+}
+
+fun gitVersion(): String {
+    ByteArrayOutputStream().use { output ->
+        exec {
+            commandLine("git", "describe", "--always", "--first-parent", "--dirty")
+            standardOutput = output
+        }
+        return output.toString()
+            .replace("\n", "")
+            .replace("\r", "")
+    }
 }

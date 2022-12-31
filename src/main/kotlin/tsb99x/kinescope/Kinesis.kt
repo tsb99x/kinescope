@@ -8,24 +8,25 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.core.client.config.SdkAdvancedAsyncClientOption.FUTURE_COMPLETION_EXECUTOR
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
+import software.amazon.awssdk.services.kinesis.model.Record
 import software.amazon.awssdk.services.kinesis.model.ShardIteratorType
-import java.io.Serializable
 import java.io.UncheckedIOException
 import java.net.URI
 
-const val LIST_STREAMS_ADDR = "kinesis.list-streams"
-const val LIST_SHARDS_ADDR = "kinesis.list-shards"
-const val READ_SHARD_ADDR = "kinesis.read-shard"
+data class ListStreams(val any: Any?) : Request
+data class ListStreamsRes(val streamNames: List<String>) : Response
+data class ListShards(val streamName: String) : Request
+data class ListShardsRes(val shardIds: List<String>) : Response
+data class ReadShard(val streamName: String, val shardId: String) : Request
+data class ReadShardRes(val records: List<String>) : Response
 
-data class ListStreamsRes(val streamNames: List<String>) : Serializable
-data class ListShards(val streamName: String) : Serializable
-data class ListShardsRes(val shardIds: List<String>) : Serializable
-data class ReadShard(val streamName: String, val shardId: String) : Serializable
-data class ReadShardRes(val records: List<String>) : Serializable
+val PB_LIST_STREAMS = Postbox<ListStreams, ListStreamsRes>("kinesis.list-streams")
+val PB_LIST_SHARDS = Postbox<ListShards, ListShardsRes>("kinesis.list-shards")
+val PB_READ_SHARD = Postbox<ReadShard, ReadShardRes>("kinesis.read-shard")
 
-private val log = LoggerFactory.getLogger(KinesisKotlin::class.java)
+private val log = LoggerFactory.getLogger(Kinesis::class.java)
 
-class KinesisKotlin : CoroutineVerticle() {
+class Kinesis : CoroutineVerticle() {
 
     private lateinit var client: KinesisAsyncClient
 
@@ -45,14 +46,19 @@ class KinesisKotlin : CoroutineVerticle() {
             .asyncConfiguration { it.advancedOption(FUTURE_COMPLETION_EXECUTOR, vertx.nettyEventLoopGroup()) }
             .build()
 
-        receive(LIST_STREAMS_ADDR, this::handleListStreams)
-        receive(LIST_SHARDS_ADDR, this::handleListShards)
-        receive(READ_SHARD_ADDR, this::handleReadShard)
+        receive(PB_LIST_STREAMS, this::listStreams)
+        receive(PB_LIST_SHARDS, this::listShards)
+        receive(PB_READ_SHARD, this::readShard)
 
-        log.info("started Kinesis Vertice")
+        log.info("started Kinesis Verticle")
     }
 
-    private suspend fun handleListStreams(any: Any): ListStreamsRes {
+    override suspend fun stop() {
+        client.close()
+        log.info("stopped Kinesis Verticle")
+    }
+
+    private suspend fun listStreams(req: ListStreams): ListStreamsRes {
         val res = client.listStreams {
             it.limit(100)
         }.await()
@@ -60,7 +66,7 @@ class KinesisKotlin : CoroutineVerticle() {
         return ListStreamsRes(res.streamNames())
     }
 
-    private suspend fun handleListShards(req: ListShards): ListShardsRes {
+    private suspend fun listShards(req: ListShards): ListShardsRes {
         val res = client.listShards {
             it.streamName(req.streamName)
             it.maxResults(100)
@@ -71,34 +77,34 @@ class KinesisKotlin : CoroutineVerticle() {
         return ListShardsRes(shardIds)
     }
 
-    private suspend fun handleReadShard(req: ReadShard): ReadShardRes {
+    private suspend fun readShard(req: ReadShard): ReadShardRes {
         val iteratorType = ShardIteratorType.TRIM_HORIZON
 
-        val rgsi = client.getShardIterator {
+        val res = client.getShardIterator {
             it.streamName(req.streamName)
             it.shardId(req.shardId)
             it.shardIteratorType(iteratorType)
         }.await()
 
-        val rgr = client.getRecords {
-            it.shardIterator(rgsi.shardIterator())
-            it.limit(100)
-        }.await()
-
-        val records = rgr.records().map {
-            try {
-                it.data().asUtf8String()
-            } catch (_: UncheckedIOException) {
-                "failed to parse as UTF8 String: ${it.data()}"
+        val records = getRecords(res.shardIterator())
+            .map {
+                try {
+                    it.data().asUtf8String()
+                } catch (_: UncheckedIOException) {
+                    "failed to parse as UTF8 String: ${it.data()}"
+                }
             }
-        }
 
         return ReadShardRes(records)
     }
 
-    override suspend fun stop() {
-        client.close()
-        log.info("stopped Kinesis Vertice")
+    private suspend fun getRecords(shardIterator: String): List<Record> {
+        val res = client.getRecords {
+            it.shardIterator(shardIterator)
+            it.limit(100)
+        }.await()
+
+        return res.records()
     }
 
 }

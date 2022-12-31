@@ -1,16 +1,20 @@
 FROM eclipse-temurin:17-jre-alpine
 
+ARG VERSION
+
 LABEL org.opencontainers.image.source=https://github.com/tsb99x/kinescope
+LABEL org.opencontainers.image.authors="Anton Muravev"
 LABEL org.opencontainers.image.description="Kinescope"
 LABEL org.opencontainers.image.licenses=MIT
-
-ENV VERTICLE_FILE kinescope-0.1.0-fat.jar
-ENV VERTICLE_HOME /usr/verticles
+LABEL org.opencontainers.image.version=$VERSION
 
 EXPOSE 8080
 
-COPY build/libs/$VERTICLE_FILE $VERTICLE_HOME/
+WORKDIR /app
+COPY build/distributions/kinescope-${VERSION}.tar .
+RUN tar -xvf kinescope-${VERSION}.tar --strip-components 1 \
+    && rm kinescope-${VERSION}.tar
+USER nobody
 
-WORKDIR $VERTICLE_HOME
 ENTRYPOINT ["sh", "-c"]
-CMD ["exec java -jar $VERTICLE_FILE"]
+CMD ["exec bin/kinescope run tsb99x.kinescope.Application"]

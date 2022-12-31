@@ -3,19 +3,23 @@ package tsb99x.kinescope
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.await
 import org.slf4j.LoggerFactory
+import kotlin.system.measureTimeMillis
 
 private val log = LoggerFactory.getLogger(Application::class.java)
 
 class Application : CoroutineVerticle() {
 
     override suspend fun start() {
-        vertx.deployVerticle(HttpServer()).await()
-        vertx.deployVerticle(KinesisKotlin()).await()
-        log.info("started Application Vertice")
+        log.info("starting Kinescope {}", javaClass.`package`.implementationVersion ?: "SNAPSHOT")
+        val startupTime = measureTimeMillis {
+            vertx.deployVerticle(HttpServer()).await()
+            vertx.deployVerticle(Kinesis()).await()
+        }
+        log.info("started Application Verticle in {}s", startupTime / 1_000f)
     }
 
     override suspend fun stop() {
-        log.info("stopped Application Vertice")
+        log.info("stopped Application Verticle")
     }
 
 }
