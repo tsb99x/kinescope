@@ -4,6 +4,7 @@ import io.vertx.kotlin.coroutines.CoroutineVerticle
 import kotlinx.coroutines.future.await
 import org.slf4j.LoggerFactory
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.core.client.config.SdkAdvancedAsyncClientOption.FUTURE_COMPLETION_EXECUTOR
 import software.amazon.awssdk.regions.Region
@@ -31,18 +32,29 @@ class Kinesis : CoroutineVerticle() {
     private lateinit var client: KinesisAsyncClient
 
     override suspend fun start() {
-        val region = Region.of(config.getString("kinesis.region", "eu-central-1"))
-        val accessKeyId = config.getString("kinesis.access-key-id", "access-key-id")
-        val secretAccessKey = config.getString("kinesis.secret-access-key", "secret-access-key")
-        val endpointOverride = URI.create(config.getString("kinesis.endpoint-override", "http://localhost:4566"))
+        val accessKeyId: String = config.requiredProperty("AWS_ACCESS_KEY_ID")
+        val secretAccessKey: String = config.requiredProperty("AWS_SECRET_ACCESS_KEY")
+        val sessionToken: String? = config.optionalProperty("AWS_SESSION_TOKEN")
+        val region: String = config.requiredProperty("AWS_REGION")
+        val endpointOverride: String? = config.optionalProperty("AWS_ENDPOINT_OVERRIDE")
 
-        val basicCredentials = AwsBasicCredentials.create(accessKeyId, secretAccessKey)
-        val credentialsProvider = StaticCredentialsProvider.create(basicCredentials)
+        val credentials = sessionToken?.let {
+            log.warn("using session credentials")
+            AwsSessionCredentials.create(accessKeyId, secretAccessKey, it)
+        } ?: let {
+            log.warn("using basic credentials")
+            AwsBasicCredentials.create(accessKeyId, secretAccessKey)
+        }
 
         client = KinesisAsyncClient.builder()
-            .endpointOverride(endpointOverride)
-            .region(region)
-            .credentialsProvider(credentialsProvider)
+            .credentialsProvider(StaticCredentialsProvider.create(credentials))
+            .region(Region.of(region))
+            .apply {
+                endpointOverride?.let {
+                    log.warn("using endpoint override of {}", endpointOverride)
+                    endpointOverride(URI.create(endpointOverride))
+                } ?: log.warn("using AWS endpoint configuration")
+            }
             .asyncConfiguration { it.advancedOption(FUTURE_COMPLETION_EXECUTOR, vertx.nettyEventLoopGroup()) }
             .build()
 

@@ -5,11 +5,15 @@ import io.netty.handler.codec.http.HttpHeaderValues.TEXT_HTML
 import io.netty.handler.codec.http.HttpHeaderValues.TEXT_PLAIN
 import io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR
 import io.vertx.core.http.HttpHeaders
+import io.vertx.ext.web.Route
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.LoggerHandler
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.dispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger(HttpServer::class.java)
@@ -17,8 +21,8 @@ private val log = LoggerFactory.getLogger(HttpServer::class.java)
 class HttpServer : CoroutineVerticle() {
 
     override suspend fun start() {
-        val host = config.getString("http.host", "0.0.0.0")
-        val port = config.getInteger("http.port", 8080)
+        val host = config.optionalProperty("HTTP_HOST") ?: "0.0.0.0"
+        val port = config.optionalProperty("HTTP_PORT") ?: 8888
 
         val server = vertx.createHttpServer()
         val router = Router.router(vertx)
@@ -97,4 +101,16 @@ class HttpServer : CoroutineVerticle() {
             .end(records)
     }
 
+}
+
+private fun Route.coHandler(fn: suspend (RoutingContext) -> Unit) {
+    handler { ctx ->
+        CoroutineScope(ctx.vertx().dispatcher()).launch {
+            try {
+                fn(ctx)
+            } catch (t: Throwable) {
+                ctx.fail(t)
+            }
+        }
+    }
 }

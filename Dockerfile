@@ -8,7 +8,7 @@ LABEL org.opencontainers.image.description="Kinescope"
 LABEL org.opencontainers.image.licenses=MIT
 LABEL org.opencontainers.image.version=$VERSION
 
-EXPOSE 8080
+EXPOSE 8888
 
 WORKDIR /app
 COPY build/distributions/kinescope-${VERSION}.tar .
