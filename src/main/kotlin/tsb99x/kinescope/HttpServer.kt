@@ -2,9 +2,9 @@ package tsb99x.kinescope
 
 import io.netty.handler.codec.http.HttpHeaderNames.CONTENT_TYPE
 import io.netty.handler.codec.http.HttpHeaderValues.TEXT_HTML
-import io.netty.handler.codec.http.HttpHeaderValues.TEXT_PLAIN
 import io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR
-import io.vertx.core.http.HttpHeaders
+import io.vertx.core.Future
+import io.vertx.core.http.HttpServerResponse
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.RoutingContext
@@ -29,9 +29,10 @@ class HttpServer : CoroutineVerticle() {
 
         router.route().handler(LoggerHandler.create())
         router.route().failureHandler(this::failure)
-        router.get("/").coHandler(this::root)
-        router.get("/:streamName").coHandler(this::listShards)
-        router.get("/:streamName/:shardId").coHandler(this::readShard)
+        router.get("/").handler(this::index)
+        router.get("/kinesis").coHandler(this::listStreams)
+        router.get("/kinesis/:streamName").coHandler(this::listShards)
+        router.get("/kinesis/:streamName/:shardId").coHandler(this::readShard)
 
         server.requestHandler(router)
         val res = server.listen(port, host).await()
@@ -45,26 +46,25 @@ class HttpServer : CoroutineVerticle() {
     private fun failure(ctx: RoutingContext) {
         ctx.response()
             .setStatusCode(INTERNAL_SERVER_ERROR.code())
-            .putHeader(CONTENT_TYPE, TEXT_PLAIN)
-            .end(ctx.failure().message)
+            .html(ctx.failure().message)
     }
 
-    private suspend fun root(ctx: RoutingContext) {
+    private fun index(ctx: RoutingContext) {
+        ctx.response().html("<a href='kinesis'>kinesis</a>")
+    }
+
+    private suspend fun listStreams(ctx: RoutingContext) {
         val res = request(PB_LIST_STREAMS, ListStreams(null))
 
-        if (res.body().streamNames.isEmpty()) {
-            ctx.response()
-                .putHeader(CONTENT_TYPE, TEXT_PLAIN)
-                .end("no stream exists yet")
+        if (res.streamNames.isEmpty()) {
+            ctx.response().html("no stream exists yet")
             return
         }
 
-        val streamNameLinks = res.body().streamNames
-            .joinToString("<br/>") { "<a href='$it'>$it</a>" }
+        val streamNameLinks = res.streamNames
+            .joinToString("<br><br>") { "<a href='${ctx.request().path()}/$it'>$it</a>" }
 
-        ctx.response()
-            .putHeader(CONTENT_TYPE, TEXT_HTML)
-            .end(streamNameLinks)
+        ctx.response().html(streamNameLinks)
     }
 
     private suspend fun listShards(ctx: RoutingContext) {
@@ -72,12 +72,15 @@ class HttpServer : CoroutineVerticle() {
 
         val res = request(PB_LIST_SHARDS, ListShards(streamName))
 
-        val streamNameLinks = res.body().shardIds
-            .joinToString("<br/>") { "<a href='${ctx.request().absoluteURI()}/$it'>$it</a>" }
+        if (res.shardIds.isEmpty()) {
+            ctx.response().html("no shard exists yet")
+            return
+        }
 
-        ctx.response()
-            .putHeader(CONTENT_TYPE, HttpHeaders.TEXT_HTML)
-            .end(streamNameLinks)
+        val shardIds = res.shardIds
+            .joinToString("<br><br>") { "<a href='${ctx.request().path()}/$it'>$it</a>" }
+
+        ctx.response().html(shardIds)
     }
 
     private suspend fun readShard(ctx: RoutingContext) {
@@ -86,19 +89,15 @@ class HttpServer : CoroutineVerticle() {
 
         val res = request(PB_READ_SHARD, ReadShard(streamName, shardId))
 
-        if (res.body().records.isEmpty()) {
-            ctx.response()
-                .putHeader(CONTENT_TYPE, TEXT_PLAIN)
-                .end("no records exists yet")
+        if (res.records.isEmpty()) {
+            ctx.response().html("no record exists yet")
             return
         }
 
-        val records = res.body().records
-            .joinToString("<br/><br/>")
+        val records = res.records
+            .joinToString("<br><br>")
 
-        ctx.response()
-            .putHeader(CONTENT_TYPE, TEXT_HTML)
-            .end(records)
+        ctx.response().html(records)
     }
 
 }
@@ -113,4 +112,8 @@ private fun Route.coHandler(fn: suspend (RoutingContext) -> Unit) {
             }
         }
     }
+}
+
+private fun HttpServerResponse.html(body: String?): Future<Void> {
+    return putHeader(CONTENT_TYPE, TEXT_HTML).end(body)
 }

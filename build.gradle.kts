@@ -14,6 +14,7 @@ val vertxVersion = "4.3.7"
 val awsSdkVersion = "2.19.5"
 val kotlinxCoroutinesVersion = "1.5.2"
 val logbackVersion = "1.4.5"
+val testContainersVersion = "1.17.6"
 
 val mainVerticleName = "tsb99x.kinescope.Application"
 val launcherClassName = "io.vertx.core.Launcher"
@@ -31,6 +32,7 @@ dependencies {
     implementation(platform("io.vertx:vertx-stack-depchain:$vertxVersion"))
     implementation(platform("software.amazon.awssdk:bom:$awsSdkVersion"))
     implementation(platform("org.jetbrains.kotlinx:kotlinx-coroutines-bom:$kotlinxCoroutinesVersion"))
+    implementation(platform("org.testcontainers:testcontainers-bom:$testContainersVersion"))
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8")
 
@@ -39,7 +41,12 @@ dependencies {
     implementation("io.vertx:vertx-lang-kotlin-coroutines")
 
     implementation("software.amazon.awssdk:kinesis")
+
     runtimeOnly("ch.qos.logback:logback-classic:$logbackVersion")
+
+    testImplementation("io.vertx:vertx-junit5")
+    testImplementation("org.testcontainers:testcontainers")
+    testImplementation("org.testcontainers:junit-jupiter")
 }
 
 application {
