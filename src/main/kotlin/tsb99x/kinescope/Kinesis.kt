@@ -14,11 +14,11 @@ import software.amazon.awssdk.services.kinesis.model.ShardIteratorType
 import java.io.UncheckedIOException
 import java.net.URI
 
-data class ListStreams(val any: Any?) : Request
+data class ListStreams(val limit: Int) : Request
 data class ListStreamsRes(val streamNames: List<String>) : Response
-data class ListShards(val streamName: String) : Request
+data class ListShards(val streamName: String, val limit: Int) : Request
 data class ListShardsRes(val shardIds: List<String>) : Response
-data class ReadShard(val streamName: String, val shardId: String) : Request
+data class ReadShard(val streamName: String, val shardId: String, val limit: Int) : Request
 data class ReadShardRes(val records: List<String>) : Response
 
 val PB_LIST_STREAMS = Postbox<ListStreams, ListStreamsRes>("kinesis.list-streams")
@@ -72,7 +72,7 @@ class Kinesis : CoroutineVerticle() {
 
     private suspend fun listStreams(req: ListStreams): ListStreamsRes {
         val res = client.listStreams {
-            it.limit(100)
+            it.limit(req.limit)
         }.await()
 
         return ListStreamsRes(res.streamNames())
@@ -81,7 +81,7 @@ class Kinesis : CoroutineVerticle() {
     private suspend fun listShards(req: ListShards): ListShardsRes {
         val res = client.listShards {
             it.streamName(req.streamName)
-            it.maxResults(100)
+            it.maxResults(req.limit)
         }.await()
 
         val shardIds = res.shards().map { it.shardId() }
@@ -98,7 +98,7 @@ class Kinesis : CoroutineVerticle() {
             it.shardIteratorType(iteratorType)
         }.await()
 
-        val records = getRecords(res.shardIterator())
+        val records = getRecords(res.shardIterator(), req.limit)
             .map {
                 try {
                     it.data().asUtf8String()
@@ -110,10 +110,10 @@ class Kinesis : CoroutineVerticle() {
         return ReadShardRes(records)
     }
 
-    private suspend fun getRecords(shardIterator: String): List<Record> {
+    private suspend fun getRecords(shardIterator: String, limit: Int): List<Record> {
         val res = client.getRecords {
             it.shardIterator(shardIterator)
-            it.limit(100)
+            it.limit(limit)
         }.await()
 
         return res.records()

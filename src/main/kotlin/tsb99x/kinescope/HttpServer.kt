@@ -15,6 +15,7 @@ import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
+import kotlin.reflect.KClass
 
 private val log = LoggerFactory.getLogger(HttpServer::class.java)
 
@@ -54,7 +55,9 @@ class HttpServer : CoroutineVerticle() {
     }
 
     private suspend fun listStreams(ctx: RoutingContext) {
-        val res = request(PB_LIST_STREAMS, ListStreams(null))
+        val limit = ctx.queryParamInt("limit") ?: 100
+
+        val res = request(PB_LIST_STREAMS, ListStreams(limit))
 
         if (res.streamNames.isEmpty()) {
             ctx.response().html("no stream exists yet")
@@ -68,9 +71,10 @@ class HttpServer : CoroutineVerticle() {
     }
 
     private suspend fun listShards(ctx: RoutingContext) {
-        val streamName = ctx.pathParam("streamName")
+        val streamName = ctx.pathParamStr("streamName")
+        val limit = ctx.queryParamInt("limit") ?: 100
 
-        val res = request(PB_LIST_SHARDS, ListShards(streamName))
+        val res = request(PB_LIST_SHARDS, ListShards(streamName, limit))
 
         if (res.shardIds.isEmpty()) {
             ctx.response().html("no shard exists yet")
@@ -84,10 +88,11 @@ class HttpServer : CoroutineVerticle() {
     }
 
     private suspend fun readShard(ctx: RoutingContext) {
-        val streamName = ctx.pathParam("streamName")
-        val shardId = ctx.pathParam("shardId")
+        val streamName = ctx.pathParamStr("streamName")
+        val shardId = ctx.pathParamStr("shardId")
+        val limit = ctx.queryParamInt("limit") ?: 100
 
-        val res = request(PB_READ_SHARD, ReadShard(streamName, shardId))
+        val res = request(PB_READ_SHARD, ReadShard(streamName, shardId, limit))
 
         if (res.records.isEmpty()) {
             ctx.response().html("no record exists yet")
@@ -114,6 +119,49 @@ private fun Route.coHandler(fn: suspend (RoutingContext) -> Unit) {
     }
 }
 
+class PathParamNotFound(paramName: String) :
+    RuntimeException("path parameter $paramName is required, but was not found")
+
+fun RoutingContext.pathParamStr(name: String): String {
+    return pathParam(name) ?: throw PathParamNotFound(name)
+}
+
+class QueryParamConversionFailed(paramName: String, klass: KClass<*>) :
+    RuntimeException("query parameter $paramName cannot be converted to ${klass.simpleName}")
+
+fun RoutingContext.queryParamInt(name: String): Int? {
+    try {
+        return queryParam(name).firstOrNull()?.toInt()
+    } catch (ex: NumberFormatException) {
+        throw QueryParamConversionFailed(name, Int::class)
+    }
+}
+
 private fun HttpServerResponse.html(body: String?): Future<Void> {
-    return putHeader(CONTENT_TYPE, TEXT_HTML).end(body)
+    return putHeader(CONTENT_TYPE, TEXT_HTML).end(htmlTemplate(body))
+}
+
+private fun htmlTemplate(body: String?): String {
+    return """
+           <!DOCTYPE html>
+           <html lang="en">
+           <head>
+               <title>Kinescope</title>
+                <style>
+                    body {
+                        font-family: monospace;
+                        background-color: #f5f5f5;
+                        padding: 1rem;
+                    }
+                    pre {
+                        background-color: #fff;
+                        padding: 1rem;
+                    }
+                </style>
+            </head>
+            <body>
+                $body
+            </body>
+            </html>
+            """.trimIndent()
 }
